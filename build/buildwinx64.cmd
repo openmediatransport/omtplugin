@@ -1,0 +1,1 @@
+dotnet publish ../omtplugin.sln -r win-x64 -c Release
