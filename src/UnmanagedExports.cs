@@ -39,10 +39,20 @@ namespace omtplugin
             return ((major << 24) | (minor << 16) | patch);
         }
 
+        private static void LoadLibraries()
+        {
+            if (OMTPlatform.GetPlatformType() == OMTPlatformType.Win32)
+            {
+                string libvmxPath = AppContext.BaseDirectory + @"\..\..\obs-plugins\64bit\libvmx.dll";
+                OMTPlatform.GetInstance().OpenLibrary(libvmxPath);
+            }
+        }
+
         private static IntPtr obs_module_pointer;
         [UnmanagedCallersOnly(EntryPoint = "obs_module_load")]
         public static bool ObsModuleLoad()
         {
+            LoadLibraries();
             OBSSource.Register();
             OBSOutput.Register();
             //Start listening for sources right away
