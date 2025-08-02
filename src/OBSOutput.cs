@@ -35,7 +35,7 @@ using System.Threading.Tasks;
 
 namespace omtplugin
 {
-    internal class OBSOutput : IDisposable
+    internal class OBSOutput : OBSBase
     {
         private static OBS.obs_function_create createDelegate;
         private static OBS.obs_function_destroy destroyDelegate;
@@ -48,12 +48,14 @@ namespace omtplugin
         private static OBS.obs_function_get_properties getPropertiesDelegate;
         private static OBS.obs_function_get_defaults getDefaultsDelegate;
         private static OBS.obs_function_encoded_packet encodedPacketDelegate;
-        private static OBS.obs_frontend_cb startStopMenuDelegate;
+        private static OBS.obs_frontend_cb menuDelegate;
 
         private static OBS.obs_output_info info;
 
         private const string OutputIDString = "omtoutput";
         private static IntPtr OutputID = Marshal.StringToCoTaskMemUTF8(OutputIDString);
+
+        private static OBSOutputSettings? outputSettings = null;
         
         static OBSOutput()
         {
@@ -69,7 +71,7 @@ namespace omtplugin
             getDefaultsDelegate = new OBS.obs_function_get_defaults(GetDefaults);
             eventCallback = new OBS.obs_fontend_event_cb(EventCallback);
             encodedPacketDelegate = new OBS.obs_function_encoded_packet(EncodedPacket);
-            startStopMenuDelegate = new OBS.obs_frontend_cb(StartStopMenu);
+            menuDelegate = new OBS.obs_frontend_cb(MenuClick);
 
             info.id = OutputID;
             info.flags = OBS.OBS_OUTPUT_AV;
@@ -88,82 +90,98 @@ namespace omtplugin
 
         private IntPtr output;
         private IntPtr settings;
-        private bool disposedValue;
         private OMTSend? send;
         private OMTMediaFrame videoFrame;
         private OMTMediaFrame audioFrame;
         private static OBS.obs_fontend_event_cb eventCallback;
         private object lockSync = new object();
 
-        private static IntPtr outputInstance;
-        private static bool outputRunning;
+        private static IntPtr mainInstance;
+
+        private IntPtr instance;
 
         private int strideHeight = 0;
+        public const string DEFAULT_OUTPUT_NAME = "OBS Output";
 
         public OBSOutput(IntPtr output, IntPtr settings)
         {            
             this.output = output;
             this.settings = settings;
+            GCHandle handle = GCHandle.Alloc(this);
+            instance = GCHandle.ToIntPtr(handle);
         }
 
-        private static void StartStopMenu(IntPtr private_data)
+        private static void MenuClick(IntPtr private_data)
         {
-            if (outputInstance != IntPtr.Zero)
+            if (mainInstance != IntPtr.Zero)
             {
-                if (private_data == 0)
-                {
-                    //Start
-                    StartMainOutput();
-                }
-                else if (private_data == 1)
-                {
-                    //Stop
-                    StopMainOutput();
-                }
+                //Settings
+                SettingsMenu();
             }
         }
+
+        private static void SettingsMenu()
+        {
+            if (outputSettings != null)
+            {
+                outputSettings.ShowSettings();
+            }
+        }
+
         private static void EncodedPacket(IntPtr data, IntPtr packet)
         {
 
         }
-
-        private static void StartMainOutput()
+        public IntPtr ToIntPtr()
         {
-            try
-            {
-                if (outputInstance != IntPtr.Zero)
-                {
-                    bool result = OBS.obs_output_start(outputInstance);
-                    if (result)
-                    {
-                        outputRunning = true;
-                        OMTLogging.Write("StartMainOutput", "OMTOutput");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                OMTLogging.Write(ex.ToString(), "OMTOutput.StartMainOutput");
-            }
-
+            return instance;
         }
-        private static void StopMainOutput()
+        public static void StartInstance(IntPtr instance)
         {
             try
             {
-                if (outputInstance != IntPtr.Zero)
+                bool result = OBS.obs_output_start(instance);
+                if (result)
                 {
-                    if (outputRunning)
-                    {
-                        outputRunning = false;
-                        OBS.obs_output_stop(outputInstance);
-                    }
+                    OMTLogging.Write("StartInstance: " + instance, "OMTOutput");
                 }
             }
             catch (Exception ex)
             {
-                OMTLogging.Write(ex.ToString(), "OMTOutput.StopMainOutput");
+                OMTLogging.Write(ex.ToString(), "OMTOutput.StartInstance");
             }
+        }
+        public static void StopInstance(IntPtr instance)
+        {
+            try
+            {
+                OBS.obs_output_stop(instance);
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTOutput.StopInstance");
+            }
+        }
+        public static OBSOutput? FromIntPtr(IntPtr instance)
+        {
+            if (instance != IntPtr.Zero)
+            {
+                GCHandle handle = GCHandle.FromIntPtr(instance);
+                if (handle.IsAllocated)
+                {
+                    if (handle.Target != null)
+                    {
+                        return (OBSOutput)handle.Target;
+                    }
+
+                }
+            }
+            return null;
+        }
+
+        public static IntPtr GetMainOutput()
+        {
+            return mainInstance;
         }
 
         private static void CreateMainOutput()
@@ -171,12 +189,16 @@ namespace omtplugin
             try
             {
                 IntPtr data = OBS.obs_data_create();
-                outputInstance = OBS.obs_output_create(OutputIDString, "OMT Output", data, IntPtr.Zero);
-                if (outputInstance != IntPtr.Zero)
+                mainInstance = OBS.obs_output_create(OutputIDString, "OMT Output", data, IntPtr.Zero);
+                if (mainInstance != IntPtr.Zero)
                 {
-                    OMTLogging.Write("CreateMainOutput: " + OutputIDString, "OMTOutput");
+                    OMTLogging.Write("CreateMainOutput: " + OutputIDString + "," + mainInstance, "OMTOutput");
                 }
                 OBS.obs_data_release(data);
+                if (outputSettings != null)
+                {
+                    outputSettings.Configure();
+                }
             }
             catch (Exception ex)
             {
@@ -187,11 +209,12 @@ namespace omtplugin
         {
             try
             {
-                if (outputInstance != IntPtr.Zero)
+                IntPtr o = GetMainOutput();
+                if (o != IntPtr.Zero)
                 {
-                    StopMainOutput();
-                    OBS.obs_output_release(outputInstance);
-                    outputInstance = IntPtr.Zero;
+                    StopInstance(o);
+                    OBS.obs_output_release(o);
+                    mainInstance = IntPtr.Zero;
                     OMTLogging.Write("DestroyMainOutput", "OMTOutput");
                 }
             }
@@ -203,12 +226,25 @@ namespace omtplugin
 
         private static void EventCallback(OBS.obs_frontend_event evt, IntPtr private_data)
         {
-            if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_FINISHED_LOADING || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGED)
+            try
             {
-                CreateMainOutput();
-            } else if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_EXIT || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGING)
+                if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_FINISHED_LOADING || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGED)
+                {
+                    CreateMainOutput();
+                }
+                else if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_EXIT || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGING)
+                {
+                    DestroyMainOutput();
+                }
+                if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_EXIT)
+                {
+                    DestroyFrontEnd();
+                    DestroyOutputSettings();
+                }
+            }
+            catch (Exception ex)
             {
-                DestroyMainOutput();
+                OMTLogging.Write(ex.ToString(), "OMTOutput.EventCallback");
             }
         }
 
@@ -216,44 +252,45 @@ namespace omtplugin
         {
         }
 
-        private static OBSOutput? GetInstance(IntPtr data)
-        {
-            try
-            {
-                GCHandle handle = GCHandle.FromIntPtr(data);
-                if (handle.IsAllocated)
-                {
-                    OBSOutput? output = (OBSOutput?)handle.Target;
-                    if (output != null)
-                    {
-                        return output;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-
-                OMTLogging.Write(ex.ToString(), "OMTOutput.GetInstance");
-            }
-            return null;
-        }
-
         public static void Register()
         {
             try
             {
                 OBS.obs_register_output_s(ref info, Marshal.SizeOf<OBS.obs_output_info>());
-                IntPtr mainWindow = OBS.obs_frontend_get_main_window();
-                if (mainWindow != IntPtr.Zero)
-                {
-                    OBS.obs_frontend_add_event_callback(Marshal.GetFunctionPointerForDelegate(eventCallback), IntPtr.Zero);
-                    OBS.obs_frontend_add_tools_menu_item("Start OMT Output",Marshal.GetFunctionPointerForDelegate(startStopMenuDelegate), new nint(0));
-                    OBS.obs_frontend_add_tools_menu_item("Stop OMT Output", Marshal.GetFunctionPointerForDelegate(startStopMenuDelegate), new nint(1));
-                }
+                CreateOutputSettings();
+                CreateFrontEnd();
             }
             catch (Exception ex)
             {
                 OMTLogging.Write(ex.ToString(),"OMTOutput.Register");
+            }
+        }
+
+        private static void CreateFrontEnd()
+        {
+            IntPtr mainWindow = OBS.obs_frontend_get_main_window();
+            if (mainWindow != IntPtr.Zero)
+            {
+                OBS.obs_frontend_add_event_callback(Marshal.GetFunctionPointerForDelegate(eventCallback), IntPtr.Zero);
+                OBS.obs_frontend_add_tools_menu_item("OMT Output Settings", Marshal.GetFunctionPointerForDelegate(menuDelegate), new nint(0));
+            }
+        }
+
+        private static void DestroyFrontEnd()
+        {
+        }
+
+        private static void CreateOutputSettings()
+        {
+            outputSettings = new OBSOutputSettings();
+            outputSettings.Register();
+        }
+
+        private static void DestroyOutputSettings()
+        {
+            if (outputSettings != null)
+            {
+                outputSettings.Dispose();
             }
         }
 
@@ -271,6 +308,7 @@ namespace omtplugin
                             IntPtr video = OBS.obs_output_video(this.output);
                             if (video != IntPtr.Zero)
                             {
+
                                 videoFrame = new OMTMediaFrame();
                                 audioFrame = new OMTMediaFrame();
 
@@ -328,7 +366,15 @@ namespace omtplugin
                                 audioFrame.SampleRate = (int)info.samples_per_sec;
                                 audioFrame.Codec = (int)OMTCodec.FPA1;
 
-                                send = new OMTSend("OBS Output", OMTQuality.Default);
+                                string? name = DEFAULT_OUTPUT_NAME;
+                                if (outputSettings != null)
+                                {
+                                    if (!String.IsNullOrEmpty(outputSettings.Name))
+                                    {
+                                        name = outputSettings.Name;
+                                    }
+                                }      
+                                send = new OMTSend(name, OMTQuality.Default);
 
                                 OBS.obs_output_begin_data_capture(this.output, 0);
                                 return true;
@@ -419,7 +465,7 @@ namespace omtplugin
         {
             try
             {
-                OBSOutput? output = GetInstance(data);
+                OBSOutput? output = OBSOutput.FromIntPtr(data);
                 if (output != null)
                 {
                     output.ProcessVideo(ref frame);
@@ -435,7 +481,7 @@ namespace omtplugin
         {
             try
             {
-                OBSOutput? output = GetInstance(data);
+                OBSOutput? output = OBSOutput.FromIntPtr(data);
                 if (output != null)
                 {
                     output.ProcessAudio(ref frames);
@@ -449,7 +495,7 @@ namespace omtplugin
 
         private static bool Start(IntPtr data)
         {
-            OBSOutput? output = GetInstance(data);
+            OBSOutput? output = OBSOutput.FromIntPtr(data);
             if (output != null)
             {
                 return output.StartOutput();
@@ -458,7 +504,7 @@ namespace omtplugin
         }
         private static void Stop(IntPtr data, UInt64 ts)
         {
-            OBSOutput? output = GetInstance(data);
+            OBSOutput? output = OBSOutput.FromIntPtr(data);
             if (output != null)
             {
                 output.StopOutput();
@@ -479,10 +525,8 @@ namespace omtplugin
         {
             try
             {
-                OBSOutput instance = new OBSOutput(source, settings);
-                GCHandle handle = GCHandle.Alloc(instance);
-                IntPtr p = GCHandle.ToIntPtr(handle);
-                return p;
+                OBSOutput output = new OBSOutput(source, settings);
+                return output.ToIntPtr();
             }
             catch (Exception ex)
             {
@@ -510,25 +554,25 @@ namespace omtplugin
                 OMTLogging.Write(ex.ToString(), "OMTOutput.Destroy");
             }
         }
-        protected virtual void Dispose(bool disposing)
+
+        protected override void DisposeInternal()
         {
-            if (!disposedValue)
+            if (this.send != null)
             {
-                if (disposing)
-                {
-                    if (this.send != null)
-                    {
-                        this.send.Dispose();
-                        this.send = null;
-                    }
-                }
-                disposedValue = true;
+                this.send.Dispose();
+                this.send = null;
             }
+            if (instance != IntPtr.Zero)
+            {
+                GCHandle handle = GCHandle.FromIntPtr(instance);
+                if (handle.IsAllocated)
+                {
+                    handle.Free();
+                }
+                instance = IntPtr.Zero;
+            }
+            base.DisposeInternal();
         }
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
-        }
+
     }
 }

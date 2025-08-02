@@ -48,12 +48,15 @@ namespace omtplugin
             }
         }
 
-        private static IntPtr obs_module_pointer;
+        public static IntPtr obs_module_pointer;
+        private static OBSReceive? receive = null;
+
         [UnmanagedCallersOnly(EntryPoint = "obs_module_load")]
         public static bool ObsModuleLoad()
         {
             LoadLibraries();
-            OBSSource.Register();
+            receive = new OBSReceive();
+            receive.Register();
             OBSOutput.Register();
             //Start listening for sources right away
             OMTDiscovery discovery = OMTDiscovery.GetInstance();

@@ -46,7 +46,8 @@ namespace omtplugin
         public const int OBS_OUTPUT_VIDEO = (1 << 0);
         public const int OBS_OUTPUT_AUDIO = (1 << 1);
         public const int OBS_OUTPUT_AV = (OBS_OUTPUT_VIDEO | OBS_OUTPUT_AUDIO);
-
+        public const int OBS_SOURCE_CAP_DISABLED = (1 << 10);
+        public const int OBS_PROPERTIES_DEFER_UPDATE = (1 << 0);
         public enum obs_source_type
         {
             OBS_SOURCE_TYPE_INPUT,
@@ -241,6 +242,7 @@ namespace omtplugin
         public delegate UInt32 obs_source_info_get_height(IntPtr data);
         public delegate IntPtr obs_function_get_properties(IntPtr data);
         public delegate void obs_function_update(IntPtr data, IntPtr settings);
+        public delegate void obs_function_save(IntPtr data, IntPtr settings);
         public delegate void obs_function_get_defaults(IntPtr settings);
         public delegate bool obs_function_start(IntPtr data);
         public delegate void obs_function_stop(IntPtr data, UInt64 ts);
@@ -423,18 +425,41 @@ namespace omtplugin
 
         [DllImport(DLL_PATH_FRONTEND)]
         public static extern void obs_frontend_add_event_callback(IntPtr callback, IntPtr private_data);
+
         [DllImport(DLL_PATH_FRONTEND, CharSet=CharSet.Ansi)]
         public static extern void obs_frontend_add_tools_menu_item(string name, IntPtr callback, IntPtr private_data);
+
+        [DllImport(DLL_PATH_FRONTEND)]
+        public static extern void obs_frontend_open_source_properties(IntPtr source);
+
         [DllImport(DLL_PATH_FRONTEND)]
         public static extern IntPtr obs_frontend_get_main_window();
+
+        [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
+        public static extern IntPtr obs_source_create(string id, string name, IntPtr settings, IntPtr hotkey_data);
+        [DllImport(DLL_PATH)]
+        public static extern void obs_source_release(IntPtr source);
 
         [DllImport(DLL_PATH, CharSet=CharSet.Ansi)]
         public static extern IntPtr obs_output_create(string id, string name, IntPtr settings, IntPtr hotkey_data);
         [DllImport(DLL_PATH)]
         public static extern void obs_output_release(IntPtr output);
 
+
+        [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
+        public static extern IntPtr obs_module_get_config_path(IntPtr module, string file);
+
+        [DllImport(DLL_PATH)]
+        public static extern void bfree(IntPtr ptr);
+
         [DllImport(DLL_PATH)]
         public static extern IntPtr obs_data_create();
+
+        [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
+        public static extern void obs_data_set_default_string(IntPtr data, string name, string val);
+
+        [DllImport(DLL_PATH)]
+        public static extern IntPtr obs_data_create_from_json_file(IntPtr filename);
 
         [DllImport(DLL_PATH)]
         public static extern void obs_data_release(IntPtr data);
@@ -484,6 +509,9 @@ namespace omtplugin
         public static extern IntPtr obs_properties_create();
 
         [DllImport(DLL_PATH)]
+        public static extern void obs_properties_set_flags(IntPtr properties, UInt32 flags);
+
+        [DllImport(DLL_PATH)]
         public static extern void obs_properties_destroy(IntPtr properties);
 
         [DllImport(DLL_PATH, CharSet=CharSet.Ansi)]
@@ -492,6 +520,9 @@ namespace omtplugin
 
         [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
         public static extern IntPtr obs_properties_add_bool(IntPtr properties, string name, string description);
+
+        [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
+        public static extern IntPtr obs_properties_add_text(IntPtr properties, string name, string description, int type);
 
 
         [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
@@ -505,6 +536,9 @@ namespace omtplugin
 
         [DllImport(DLL_PATH, CharSet = CharSet.Ansi)]
         public static extern IntPtr obs_data_get_string(IntPtr data, string name);
+
+        [DllImport(DLL_PATH)]
+        public static extern bool obs_data_save_json(IntPtr data, IntPtr filename);
 
         [DllImport(DLL_PATH)]
         public static extern Int64 obs_data_get_int(IntPtr data, string name);
