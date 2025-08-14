@@ -4,15 +4,23 @@ omtplugin is a cross platform Open Media Transport plugin for OBS
 
 ## Features
 
+Send and receive high quality audio/video between OBS and other OMT compatible devices over a local network!
+
+For more information about Open Media Transport in general, see the README here:
+https://github.com/openmediatransport/
+
 ### OMT Source
 
 Receive audio/video from OMT sources on the network.
+
 Supports HDR workflows using the Color Space dropdown in the OMT Source properties.
 
 ### OMT Output
 
 Send audio/video from the main OBS output.
-This can be enabled from the Tools - OMT Output Settings menu
+
+This can be enabled from the Tools - OMT Output Settings menu.
+
 This supports HDR OBS workflows and will send 10bit+ when P010 or P216 is enabled in OBS settings.
 
 ## Requirements
