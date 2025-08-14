@@ -101,6 +101,8 @@ namespace omtplugin
         private IntPtr instance;
 
         private int strideHeight = 0;
+        private OBS.video_format sourceFormat = 0;
+        private IntPtr tempData = IntPtr.Zero;
         public const string DEFAULT_OUTPUT_NAME = "OBS Output";
 
         public OBSOutput(IntPtr output, IntPtr settings)
@@ -113,11 +115,7 @@ namespace omtplugin
 
         private static void MenuClick(IntPtr private_data)
         {
-            if (mainInstance != IntPtr.Zero)
-            {
-                //Settings
-                SettingsMenu();
-            }
+            SettingsMenu();
         }
 
         private static void SettingsMenu()
@@ -179,9 +177,35 @@ namespace omtplugin
             return null;
         }
 
-        public static IntPtr GetMainOutput()
+        private static void ConfigureOutputSettings()
         {
-            return mainInstance;
+            try
+            {
+                if (outputSettings != null)
+                {
+                    outputSettings.Configure();
+                }
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTOutput.ConfigureSettings");
+            }
+        }
+
+        public static void UpdateMainOutput()
+        {
+            if (outputSettings != null)
+            {
+                DestroyMainOutput();
+                if (outputSettings.Enabled)
+                {
+                    CreateMainOutput();
+                    if (mainInstance != IntPtr.Zero)
+                    {
+                        StartInstance(mainInstance);
+                    }
+                }
+            }
         }
 
         private static void CreateMainOutput()
@@ -195,10 +219,6 @@ namespace omtplugin
                     OMTLogging.Write("CreateMainOutput: " + OutputIDString + "," + mainInstance, "OMTOutput");
                 }
                 OBS.obs_data_release(data);
-                if (outputSettings != null)
-                {
-                    outputSettings.Configure();
-                }
             }
             catch (Exception ex)
             {
@@ -209,11 +229,10 @@ namespace omtplugin
         {
             try
             {
-                IntPtr o = GetMainOutput();
-                if (o != IntPtr.Zero)
+                if (mainInstance != IntPtr.Zero)
                 {
-                    StopInstance(o);
-                    OBS.obs_output_release(o);
+                    StopInstance(mainInstance);
+                    OBS.obs_output_release(mainInstance);
                     mainInstance = IntPtr.Zero;
                     OMTLogging.Write("DestroyMainOutput", "OMTOutput");
                 }
@@ -230,7 +249,7 @@ namespace omtplugin
             {
                 if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_FINISHED_LOADING || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGED)
                 {
-                    CreateMainOutput();
+                    ConfigureOutputSettings();
                 }
                 else if (evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_EXIT || evt == OBS.obs_frontend_event.OBS_FRONTEND_EVENT_PROFILE_CHANGING)
                 {
@@ -298,6 +317,7 @@ namespace omtplugin
         {
             try
             {
+                OMTLogging.Write("StartOutput: " + this.output.ToString(), "OMTOutput");
                 lock (lockSync)
                 {
                     if (send == null)
@@ -308,7 +328,6 @@ namespace omtplugin
                             IntPtr video = OBS.obs_output_video(this.output);
                             if (video != IntPtr.Zero)
                             {
-
                                 videoFrame = new OMTMediaFrame();
                                 audioFrame = new OMTMediaFrame();
 
@@ -318,8 +337,10 @@ namespace omtplugin
                                 videoFrame.Width = (int)OBS.video_output_get_width(video);
                                 videoFrame.Height = (int)OBS.video_output_get_height(video);
                                 videoFrame.FrameRate = (float)OBS.video_output_get_frame_rate(video);
-
                                 OBS.video_format fmt = OBS.video_output_get_format(video);
+
+                                OMTLogging.Write("OMTOutputFormat: " + videoFrame.Width + "x" + videoFrame.Height + " " + videoFrame.FrameRate.ToString() + " fps " + fmt.ToString(),"OMTOutput");
+                                                                
                                 if (fmt == OBS.video_format.VIDEO_FORMAT_NV12)
                                 {
                                     videoFrame.Codec = (int)OMTCodec.NV12;
@@ -346,12 +367,18 @@ namespace omtplugin
                                     videoFrame.Codec = (int)OMTCodec.BGRA;
                                     videoFrame.Flags = OMTVideoFlags.None;
                                     strideHeight = (int)(videoFrame.Height);
+                                } else if (fmt == OBS.video_format.VIDEO_FORMAT_P216 || fmt == OBS.video_format.VIDEO_FORMAT_P010)
+                                {
+                                    videoFrame.Codec = (int)OMTCodec.P216;
+                                    videoFrame.Flags = OMTVideoFlags.HighBitDepth;
+                                    strideHeight = (int)videoFrame.Height * 2;
                                 }
                                 else
                                 {
                                     OMTLogging.Write("Video Format not supported: " + fmt.ToString(), "OMTOutput");
                                     return false;
                                 }
+                                sourceFormat = fmt;
 
                                 IntPtr pInfo = OBS.audio_output_get_info(audio);
                                 OBS.audio_output_info info = Marshal.PtrToStructure<OBS.audio_output_info>(pInfo);
@@ -402,6 +429,7 @@ namespace omtplugin
         {
             try
             {
+                OMTLogging.Write("StopOutput: " + this.output.ToString(), "OMTOutput");
                 lock (lockSync)
                 {
                     if (this.output != IntPtr.Zero)
@@ -412,6 +440,11 @@ namespace omtplugin
                     {
                         send.Dispose();
                         send = null;
+                    }
+                    if (tempData != IntPtr.Zero)
+                    {
+                        Marshal.FreeHGlobal(tempData);
+                        tempData = IntPtr.Zero;
                     }
                 }
             }
@@ -427,9 +460,22 @@ namespace omtplugin
             {
                 if (frame.data[0] != IntPtr.Zero)
                 {
-                    videoFrame.Data = frame.data[0];
-                    videoFrame.Timestamp = (Int64)frame.timestamp / 100;
                     videoFrame.Stride = (int)frame.linesize[0];
+                    if (sourceFormat == OBS.video_format.VIDEO_FORMAT_P010)
+                    {
+                        //Convert to P216
+                        if (tempData == IntPtr.Zero)
+                        {
+                            int len = videoFrame.Stride * strideHeight;
+                            tempData = Marshal.AllocHGlobal(len);
+                        }
+                        Utils.P010ToP216(frame.data[0], (int)frame.linesize[0], frame.data[1], (int)frame.linesize[1], tempData, videoFrame.Stride, videoFrame.Width, videoFrame.Height);
+                        videoFrame.Data = tempData;
+                    } else
+                    {
+                        videoFrame.Data = frame.data[0];
+                    }
+                    videoFrame.Timestamp = (Int64)frame.timestamp / 100;
                     videoFrame.DataLength = videoFrame.Stride * strideHeight;
                     lock (lockSync)
                     {
@@ -526,7 +572,9 @@ namespace omtplugin
             try
             {
                 OBSOutput output = new OBSOutput(source, settings);
-                return output.ToIntPtr();
+                IntPtr data = output.ToIntPtr();
+                OMTLogging.Write("Create: Data: " + data.ToString() + " Source: " + source.ToString(),"OMTOutput");
+                return data;
             }
             catch (Exception ex)
             {

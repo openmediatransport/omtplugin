@@ -148,11 +148,29 @@ namespace omtplugin
             VIDEO_CS_2100_PQ,
             VIDEO_CS_2100_HLG,
         }
+
+        public enum DisplayColorSpace
+        {
+            Default = 0,
+            BT601 = 601,
+            BT709 = 709,
+            BT709_P010 = 70910,
+            BT2100_PQ_P010 = 210010,
+            BT2100_HLG_P010 = 210011,
+        }
+
         public enum video_range_type
         {
             VIDEO_RANGE_DEFAULT,
             VIDEO_RANGE_PARTIAL,
             VIDEO_RANGE_FULL,
+        }
+        public enum video_trc
+        {
+            VIDEO_TRC_DEFAULT,
+            VIDEO_TRC_SRGB,
+            VIDEO_TRC_PQ,
+            VIDEO_TRC_HLG,
         }
 
         public enum speaker_layout

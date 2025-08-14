@@ -42,8 +42,13 @@ namespace omtplugin
         private string? address = null;
         private OMTQuality suggestedQuality = OMTQuality.Default;
         private bool previewMode = false;
+        private OBS.DisplayColorSpace displayColorSpace = OBS.DisplayColorSpace.Default;
+        private OBS.DisplayColorSpace activeColorSpace = OBS.DisplayColorSpace.Default;
 
         private object lockSync = new object();
+
+        private IntPtr tempData = IntPtr.Zero;
+        private int tempDataLength = 0;
 
         public OBSReceiveInstance(IntPtr source, IntPtr settings) : base(source,settings)
         {
@@ -92,9 +97,15 @@ namespace omtplugin
                 }
                 if (!String.IsNullOrEmpty(this.address))
                 {
-                    receiver = new OMTReceive(this.address, OMTFrameType.Video | OMTFrameType.Audio, OMTPreferredVideoFormat.UYVYorBGRA, OMTReceiveFlags.None);
+                    OMTPreferredVideoFormat preferred = OMTPreferredVideoFormat.UYVYorBGRA;
+                    if (displayColorSpace == OBS.DisplayColorSpace.BT709_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_PQ_P010 || displayColorSpace == OBS.DisplayColorSpace.BT2100_HLG_P010)
+                    {
+                        preferred = OMTPreferredVideoFormat.P216;
+                    }
+                    receiver = new OMTReceive(this.address, OMTFrameType.Video | OMTFrameType.Audio, preferred, OMTReceiveFlags.None);
+                    activeColorSpace = displayColorSpace;
                     StartThread();
-                    OMTLogging.Write("New Receiver: " + this.address, "OMTSource");
+                    OMTLogging.Write("New Receiver: " + this.address + "," + preferred.ToString(), "OMTSource");
                 }
             }
             catch (Exception ex)
@@ -111,7 +122,7 @@ namespace omtplugin
                 {
                     if (receiver != null)
                     {
-                        if (receiver.Address != this.address)
+                        if (receiver.Address != this.address || activeColorSpace != displayColorSpace)
                         {
                             CreateReceiver();
                         }
@@ -168,6 +179,14 @@ namespace omtplugin
                             OBS.obs_property_list_add_int(qualityProperty, quality.ToString(), (long)quality);
                         }
                     }
+                    IntPtr csProperty = OBS.obs_properties_add_list(properties, "csProperty", "Color Space", OBS.obs_combo_type.OBS_COMBO_TYPE_LIST, OBS.obs_combo_format.OBS_COMBO_FORMAT_INT);
+                    if (csProperty != IntPtr.Zero)
+                    {
+                        foreach (OBS.DisplayColorSpace cs in Enum.GetValues<OBS.DisplayColorSpace>())
+                        {
+                            OBS.obs_property_list_add_int(csProperty, cs.ToString(), (long)cs);
+                        }
+                    }
                     IntPtr previewProperty = OBS.obs_properties_add_bool(properties, "previewProperty", "Preview Mode");
                 }
                 return properties;
@@ -203,8 +222,9 @@ namespace omtplugin
                     }
                     Int64 q = OBS.obs_data_get_int(settings, "qualityProperty");
                     this.suggestedQuality = (OMTQuality)q;
-
+                    this.displayColorSpace = (OBS.DisplayColorSpace)OBS.obs_data_get_int(settings, "csProperty");
                     this.previewMode = OBS.obs_data_get_bool(settings, "previewProperty");
+                    
                 }
                 UpdateReceiver();
             }
@@ -225,14 +245,32 @@ namespace omtplugin
                 frame.color_matrix = new float[16];
                 frame.color_range_min = new float[3];
                 frame.color_range_max = new float[3];
+                frame.trc = (byte)OBS.video_trc.VIDEO_TRC_DEFAULT;
 
                 OBS.obs_source_audio audio = new OBS.obs_source_audio();
                 audio.data = new nint[8];
 
-                if (OBS.video_format_get_parameters(OBS.video_colorspace.VIDEO_CS_DEFAULT, OBS.video_range_type.VIDEO_RANGE_DEFAULT,
+                OBS.video_colorspace cs = OBS.video_colorspace.VIDEO_CS_DEFAULT;
+                if (activeColorSpace == OBS.DisplayColorSpace.BT2100_PQ_P010)
+                {
+                    cs = OBS.video_colorspace.VIDEO_CS_2100_PQ;
+                    frame.trc = (byte)OBS.video_trc.VIDEO_TRC_PQ;
+                } else if (activeColorSpace == OBS.DisplayColorSpace.BT2100_HLG_P010)
+                {
+                    cs = OBS.video_colorspace.VIDEO_CS_2100_HLG;
+                    frame.trc = (byte)OBS.video_trc.VIDEO_TRC_HLG;
+                } else if (activeColorSpace == OBS.DisplayColorSpace.BT601)
+                {
+                    cs = OBS.video_colorspace.VIDEO_CS_601;
+                } else if (activeColorSpace == OBS.DisplayColorSpace.BT709 || activeColorSpace == OBS.DisplayColorSpace.BT709)
+                {
+                    cs = OBS.video_colorspace.VIDEO_CS_709;
+                }
+
+                if (OBS.video_format_get_parameters(cs, OBS.video_range_type.VIDEO_RANGE_PARTIAL,
                     frame.color_matrix, frame.color_range_min, frame.color_range_max) == true)
                 {
-                    OMTLogging.Write("ColorFormatRetrieved", "OMTSource");
+                    OMTLogging.Write("ColorFormatRetrieved: " + cs.ToString(), "OMTSource");
                 }
                 OMTMediaFrame mediaFrame = new OMTMediaFrame();
 
@@ -273,6 +311,32 @@ namespace omtplugin
                                     frame.format = OBS.video_format.VIDEO_FORMAT_BGRA;
                                     frame.linesize[0] = frame.width * 4;
                                     OBS.obs_source_output_video(this.source, ref frame);
+                                } else if (mediaFrame.Codec == (int)OMTCodec.P216)
+                                {
+                                    frame.format = OBS.video_format.VIDEO_FORMAT_P010;
+
+                                    int len = mediaFrame.DataLength;
+                                    if (tempDataLength != len)
+                                    {
+                                        if (tempData != IntPtr.Zero)
+                                        {
+                                            Marshal.FreeHGlobal(tempData);
+                                            tempData = IntPtr.Zero;
+                                        }
+                                        tempDataLength = len;
+                                        tempData = Marshal.AllocHGlobal(len);
+                                    }
+
+                                    IntPtr dstY = tempData;
+                                    IntPtr dstUV = tempData + (mediaFrame.Stride * mediaFrame.Height);
+                                    Utils.P216ToP010(frame.data[0], mediaFrame.Stride, dstY, mediaFrame.Stride, dstUV, mediaFrame.Stride, mediaFrame.Width, mediaFrame.Height); 
+
+                                    frame.linesize[0] = (uint)mediaFrame.Stride;
+                                    frame.linesize[1] = (uint)mediaFrame.Stride;
+                                    frame.data[0] = dstY;
+                                    frame.data[1] = dstUV;
+
+                                    OBS.obs_source_output_video(this.source, ref frame);
                                 }
                             }
                         }
@@ -293,6 +357,12 @@ namespace omtplugin
             {
                 receiver.Dispose();
                 receiver = null;
+            }
+            if (tempData != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(tempData);
+                tempData = IntPtr.Zero;
+                tempDataLength = 0;
             }
             base.DisposeInternal();
         }

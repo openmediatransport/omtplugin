@@ -13,6 +13,8 @@ namespace omtplugin
         private OBSSourceInstance? instance = null;
         private IntPtr configPath = IntPtr.Zero;
         private string? name = null;
+        private bool enabled = false;
+
         public OBSOutputSettings() 
             : base("omtoutputsettings", "OMT Output Settings", OBS.obs_icon_type.OBS_ICON_TYPE_CAMERA, 
                   OBS.obs_source_type.OBS_SOURCE_TYPE_FILTER, OBS.OBS_SOURCE_ASYNC_VIDEO | OBS.OBS_SOURCE_AUDIO | OBS.OBS_SOURCE_CAP_DISABLED)
@@ -37,7 +39,8 @@ namespace omtplugin
             }
         }
 
-        public string? Name { get { return name; } set { name = value; } }
+        public string? Name { get { return name; } }
+        public bool Enabled {  get { return enabled; } }
 
         protected override void GetDefaults(nint settings)
         {
@@ -78,6 +81,15 @@ namespace omtplugin
         {
             if (settings != IntPtr.Zero)
             {
+                enabled = OBS.obs_data_get_bool(settings, "enabledProperty");
+                IntPtr n = OBS.obs_data_get_string(settings, "nameProperty");
+                if (n != IntPtr.Zero)
+                {
+                    name = Marshal.PtrToStringUTF8(n);
+                } else
+                {
+                    name = "";
+                }
                 if (configPath != IntPtr.Zero)
                 {
                     OBS.obs_data_save_json(settings, configPath);

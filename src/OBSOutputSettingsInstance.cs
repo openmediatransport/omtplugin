@@ -12,7 +12,6 @@ namespace omtplugin
     internal class OBSOutputSettingsInstance : OBSSourceInstance
     {
 
-        private bool enabled = false;
         private OBSOutputSettings parent;
 
         public OBSOutputSettingsInstance(OBSOutputSettings parent, nint source, nint settings) : base(source, settings)
@@ -33,31 +32,8 @@ namespace omtplugin
                 if (settings != IntPtr.Zero)
                 {
                     OMTLogging.Write("UpdateSettings", "OMTOutput");
-                    IntPtr mainOutput = OBSOutput.GetMainOutput();
-                    if (mainOutput != IntPtr.Zero)
-                    {
-                        enabled = OBS.obs_data_get_bool(settings, "enabledProperty");
-                        IntPtr n = OBS.obs_data_get_string(settings, "nameProperty");
-                        if (n != IntPtr.Zero)
-                        {
-                            string? newName = Marshal.PtrToStringUTF8(n);
-                            if (newName != parent.Name)
-                            {
-                                parent.Name = newName;
-                                OMTLogging.Write("NewName: " + newName, "OMTOutput");
-                                OBSOutput.StopInstance(mainOutput);
-                            }
-                        }
-                        if (enabled)
-                        {
-                            OBSOutput.StartInstance(mainOutput);
-                        }
-                        else
-                        {
-                            OBSOutput.StopInstance(mainOutput);
-                        }
-                    }
                     parent.SaveSettings(settings);
+                    OBSOutput.UpdateMainOutput();
                 }
             }
             catch (Exception ex)

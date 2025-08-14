@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 <PublishAot>true</PublishAot>
+<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+<Version>1.0.0.8</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
