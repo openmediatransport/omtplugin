@@ -37,7 +37,7 @@ OBS 31 or higher
 
 ### MacOS
 
-1. Download the MacOS binaries from Releases on GitHub
-2. Copy omtplugin.app from the download into the ~/Library/Application Support/obs-studio/plugins folder
+1. Download the MacOS pkg from Releases on GitHub
+2. Open the package and follow the instructions to install
 
 
