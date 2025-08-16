@@ -1,6 +1,10 @@
-﻿# Open Media Transport plugin for OBS
+﻿# Open Media Transport Plugin
 
-omtplugin is a cross platform Open Media Transport plugin for OBS
+omtplugin is a cross platform Open Media Transport plugin for OBS (https://obsproject.com)
+
+## Download
+
+https://github.com/openmediatransport/omtplugin/releases
 
 ## Features
 
