@@ -63,6 +63,19 @@ namespace omtplugin
             return true;
         }
 
+        [UnmanagedCallersOnly(EntryPoint = "obs_module_unload")]
+        public static void ObsModuleUnload()
+        {
+            try
+            {
+                OMTDiscovery.GetInstance().Dispose();
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "ObsModuleUnload");
+            }
+        }
+
         [UnmanagedCallersOnly(EntryPoint = "obs_module_set_pointer")]
         public static void ObsModuleSetPointer(IntPtr module)
         {
