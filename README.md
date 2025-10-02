@@ -36,8 +36,15 @@ OBS 31 or higher
 ### Windows
 
 1. Download the Windows binaries from Releases on GitHub
-2. Copy omtplugin.dll and libvmx.dll into your 64bit obs-plugins folder 
-( usually C:\Program Files\obs-studio\obs-plugins\64bit )
+2. Copy omtplugin.dll and libvmx.dll into the following folder:
+
+```
+C:\ProgramData\obs-studio\plugins\omtplugin\bin\64bit
+```
+
+This folder will need to be created if it does not already exist.
+
+**Note:** Replace C: if Windows has been installed to a different drive.
 
 ### MacOS
 
