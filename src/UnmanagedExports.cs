@@ -25,6 +25,7 @@
 
 using libomtnet;
 using System.Runtime.InteropServices;
+using System.IO;
 
 namespace omtplugin
 {
@@ -44,7 +45,14 @@ namespace omtplugin
             if (OMTPlatform.GetPlatformType() == OMTPlatformType.Win32)
             {
                 string libvmxPath = AppContext.BaseDirectory + @"\..\..\obs-plugins\64bit\libvmx.dll";
-                OMTPlatform.GetInstance().OpenLibrary(libvmxPath);
+                if (!File.Exists(libvmxPath))
+                {
+                    libvmxPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + @"\obs-studio\plugins\omtplugin\bin\64bit\libvmx.dll";
+                }
+                if (File.Exists(libvmxPath))
+                {
+                    OMTPlatform.GetInstance().OpenLibrary(libvmxPath);
+                }
             }
         }
 
