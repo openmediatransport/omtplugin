@@ -1,4 +1,4 @@
-﻿/*
+/*
 * MIT License
 *
 * Copyright (c) 2025 Open Media Transport Contributors
@@ -270,6 +270,9 @@ namespace omtplugin
         public delegate void obs_fontend_event_cb(obs_frontend_event evt, IntPtr private_data);
         public delegate void obs_frontend_cb(IntPtr private_data);
 
+        //Delegate for source lifecycle callbacks (activate, deactivate, show, hide)
+        public delegate void obs_function_source_event(IntPtr data);
+
         //MAX_AV_PLANES = 8
 
         [StructLayout(LayoutKind.Sequential)]
@@ -519,6 +522,16 @@ namespace omtplugin
 
         [DllImport(DLL_PATH)]
         public static extern void obs_source_output_audio(IntPtr source, ref obs_source_audio audio);
+
+        //Query source visibility (Preview / Showing state)
+        [DllImport(DLL_PATH, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool obs_source_showing(IntPtr source);
+
+        //Query source active state (Program / On-Air state)
+        [DllImport(DLL_PATH, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool obs_source_active(IntPtr source);
 
         [DllImport(DLL_PATH)]
         public static extern bool video_format_get_parameters(video_colorspace color_space, video_range_type range, float[] matrix, float[] min_range, float[] max_range);

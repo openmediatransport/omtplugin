@@ -1,4 +1,4 @@
-﻿/*
+/*
 * MIT License
 *
 * Copyright (c) 2025 Open Media Transport Contributors
@@ -42,7 +42,11 @@ namespace omtplugin
         private OBS.obs_function_get_name getNameDelegate;
         private OBS.obs_function_get_properties getPropertiesDelegate;
         private OBS.obs_function_update updateDelegate;
-         private OBS.obs_function_get_defaults getDefaultsDelegate;
+        private OBS.obs_function_get_defaults getDefaultsDelegate;
+        private OBS.obs_function_source_event activateDelegate;
+        private OBS.obs_function_source_event deactivateDelegate;
+        private OBS.obs_function_source_event showDelegate;
+        private OBS.obs_function_source_event hideDelegate;
         private OBS.obs_source_info info;
 
         private string sourceId;
@@ -63,6 +67,12 @@ namespace omtplugin
             updateDelegate = new OBS.obs_function_update(Update);
             getDefaultsDelegate = new OBS.obs_function_get_defaults(GetDefaults);
 
+            //Instantiate lifecycle & tally delegates
+            activateDelegate = new OBS.obs_function_source_event(Activate);
+            deactivateDelegate = new OBS.obs_function_source_event(Deactivate);
+            showDelegate = new OBS.obs_function_source_event(Show);
+            hideDelegate = new OBS.obs_function_source_event(Hide);
+
             info.id = pSourceId;
             info.icon_type = icon_type;
             info.type = type;
@@ -73,6 +83,12 @@ namespace omtplugin
             info.get_properties = Marshal.GetFunctionPointerForDelegate(getPropertiesDelegate);
             info.get_defaults = Marshal.GetFunctionPointerForDelegate(getDefaultsDelegate);
             info.update = Marshal.GetFunctionPointerForDelegate(updateDelegate);
+
+            //Register function pointers into obs_source_info struct
+            info.activate = Marshal.GetFunctionPointerForDelegate(activateDelegate);
+            info.deactivate = Marshal.GetFunctionPointerForDelegate(deactivateDelegate);
+            info.show = Marshal.GetFunctionPointerForDelegate(showDelegate);
+            info.hide = Marshal.GetFunctionPointerForDelegate(hideDelegate);
         }
 
         protected override void DisposeInternal()
@@ -173,6 +189,55 @@ namespace omtplugin
                 return source.GetProperties();
             }
             return IntPtr.Zero;
+        }
+        //Lifecycle handlers invoked by OBS Studio
+        private void Activate(IntPtr data)
+        {
+            try
+            {
+                OBSSourceInstance? source = OBSSourceInstance.FromIntPtr(data);
+                source?.Activate();
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.Activate");
+            }
+        }
+        private void Deactivate(IntPtr data)
+        {
+            try
+            {
+                OBSSourceInstance? source = OBSSourceInstance.FromIntPtr(data);
+                source?.Deactivate();
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.Deactivate");
+            }
+        }
+        private void Show(IntPtr data)
+        {
+            try
+            {
+                OBSSourceInstance? source = OBSSourceInstance.FromIntPtr(data);
+                source?.Show();
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.Show");
+            }
+        }
+        private void Hide(IntPtr data)
+        {
+            try
+            {
+                OBSSourceInstance? source = OBSSourceInstance.FromIntPtr(data);
+                source?.Hide();
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.Hide");
+            }
         }
         protected virtual void GetDefaults(IntPtr settings)
         {

@@ -1,4 +1,4 @@
-﻿/*
+/*
 * MIT License
 *
 * Copyright (c) 2025 Open Media Transport Contributors
@@ -142,12 +142,66 @@ namespace omtplugin
                         {
                             receiver.SetFlags(OMTReceiveFlags.None);
                         }
+                        UpdateTally();
                     }
                 }
             }
             catch (Exception ex)
             {
                 OMTLogging.Write(ex.ToString(), "OMTSource.UpdateReceiver");
+            }
+        }
+
+        // [MODIFICATION OMT TALLY] Lifecycle overrides triggered by OBS Studio
+        public override void Activate()
+        {
+            UpdateTally();
+        }
+
+        public override void Deactivate()
+        {
+            UpdateTally();
+        }
+
+        public override void Show()
+        {
+            UpdateTally();
+        }
+
+        public override void Hide()
+        {
+            UpdateTally();
+        }
+
+        /// <summary>
+        /// Queries the current OBS state for this source:
+        /// - Program (Red): obs_source_active(source) is true (the source is active in Program output).
+        /// - Preview (Green): obs_source_showing(source) is true while not active in Program (e.g. In Studio Mode Preview).
+        /// - Off: Not active and not showing.
+        /// Sends the tally state over TCP via receiver.SetTally().
+        /// </summary>
+        public void UpdateTally()
+        {
+            try
+            {
+                lock (lockSync)
+                {
+                    if (receiver != null && source != IntPtr.Zero)
+                    {
+                        bool isActive = OBS.obs_source_active(source);
+                        bool isShowing = OBS.obs_source_showing(source);
+
+                        int program = isActive ? 1 : 0;
+                        int preview = (!isActive && isShowing) ? 1 : 0;
+
+                        OMTLogging.Write($"UpdateTally: showing={isShowing}, active={isActive} -> Preview={preview}, Program={program}", "OMTSource");
+                        receiver.SetTally(new OMTTally(preview, program));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OMTLogging.Write(ex.ToString(), "OMTSource.UpdateTally");
             }
         }
 
