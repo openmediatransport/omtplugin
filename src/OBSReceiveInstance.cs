@@ -50,6 +50,9 @@ namespace omtplugin
         private IntPtr tempData = IntPtr.Zero;
         private int tempDataLength = 0;
 
+        private IntPtr silence = IntPtr.Zero;
+        private int silenceLength = 0;
+
         public OBSReceiveInstance(IntPtr source, IntPtr settings) : base(source,settings)
         {
             this.receiver = null;
@@ -338,14 +341,7 @@ namespace omtplugin
                         {
                             if (mediaFrame.Type == OMTFrameType.Audio)
                             {
-                                audio.format = OBS.audio_format.AUDIO_FORMAT_FLOAT_PLANAR;
-                                audio.speakers = OBS.speaker_layout.SPEAKERS_STEREO;
-                                audio.samples_per_sec = (uint)mediaFrame.SampleRate;
-                                audio.timestamp = (ulong)mediaFrame.Timestamp * 100;
-                                audio.frames = (uint)mediaFrame.SamplesPerChannel;
-                                audio.data[0] = mediaFrame.Data;
-                                audio.data[1] = mediaFrame.Data + (mediaFrame.SamplesPerChannel * 4);
-                                OBS.obs_source_output_audio(this.source, ref audio);
+                                OutputAudio(ref mediaFrame, ref audio);
                             }
                             else if (mediaFrame.Type == OMTFrameType.Video)
                             {
@@ -404,9 +400,69 @@ namespace omtplugin
             }
         }
 
+        /// <summary>
+        /// Picks the OBS speaker layout for a channel count. OBS has no layout for 7 channels
+        /// or for more than 8, so 7 rounds up to 7.1 (the 8th plane is silent) and anything
+        /// above 8 is cut to the first 8.
+        /// </summary>
+        private static OBS.speaker_layout GetSpeakerLayout(int channels, out int obsChannels)
+        {
+            switch (channels)
+            {
+                case 1: obsChannels = 1; return OBS.speaker_layout.SPEAKERS_MONO;
+                case 2: obsChannels = 2; return OBS.speaker_layout.SPEAKERS_STEREO;
+                case 3: obsChannels = 3; return OBS.speaker_layout.SPEAKERS_2POINT1;
+                case 4: obsChannels = 4; return OBS.speaker_layout.SPEAKERS_4POINT0;
+                case 5: obsChannels = 5; return OBS.speaker_layout.SPEAKERS_4POINT1;
+                case 6: obsChannels = 6; return OBS.speaker_layout.SPEAKERS_5POINT1;
+                default: obsChannels = 8; return OBS.speaker_layout.SPEAKERS_7POINT1;
+            }
+        }
+
+        private void OutputAudio(ref OMTMediaFrame mediaFrame, ref OBS.obs_source_audio audio)
+        {
+            int channels = mediaFrame.Channels;
+            int samples = mediaFrame.SamplesPerChannel;
+            if (channels <= 0 || samples <= 0) return;
+
+            //Planes are contiguous 32-bit float, one per channel
+            int planeBytes = samples * 4;
+            if ((long)channels * planeBytes > mediaFrame.DataLength) return;
+
+            audio.speakers = GetSpeakerLayout(channels, out int obsChannels);
+            int copied = Math.Min(channels, obsChannels);
+
+            if (copied < obsChannels && silenceLength < planeBytes)
+            {
+                if (silence != IntPtr.Zero) Marshal.FreeHGlobal(silence);
+                silence = Marshal.AllocHGlobal(planeBytes);
+                unsafe { new Span<byte>((void*)silence, planeBytes).Clear(); }
+                silenceLength = planeBytes;
+            }
+
+            for (int i = 0; i < audio.data.Length; i++)
+            {
+                if (i < copied) audio.data[i] = mediaFrame.Data + (i * planeBytes);
+                else if (i < obsChannels) audio.data[i] = silence;
+                else audio.data[i] = IntPtr.Zero;
+            }
+
+            audio.format = OBS.audio_format.AUDIO_FORMAT_FLOAT_PLANAR;
+            audio.samples_per_sec = (uint)mediaFrame.SampleRate;
+            audio.timestamp = (ulong)mediaFrame.Timestamp * 100;
+            audio.frames = (uint)samples;
+            OBS.obs_source_output_audio(this.source, ref audio);
+        }
+
         protected override void DisposeInternal()
         {
             StopThread();
+            if (silence != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(silence);
+                silence = IntPtr.Zero;
+                silenceLength = 0;
+            }
             if (receiver != null)
             {
                 receiver.Dispose();
